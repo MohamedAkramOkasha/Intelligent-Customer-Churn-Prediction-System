@@ -1,0 +1,28 @@
+services:
+  api:
+    build: .
+    image: churn-intelligence:latest
+    container_name: churn-api
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  dashboard:
+    image: churn-intelligence:latest
+    container_name: churn-dashboard
+    command: ["streamlit", "run", "dashboard/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    environment:
+      CHURN_API_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

@@ -1,0 +1,164 @@
+[
+  {
+    "feature":"charge_to_tenure_ratio",
+    "label":"Charges relative to tenure",
+    "mean_abs_shap":0.5830954666,
+    "value_shap_correlation":0.814
+  },
+  {
+    "feature":"Contract",
+    "label":"Contract type",
+    "mean_abs_shap":0.5604883961,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"InternetService",
+    "label":"Internet service",
+    "mean_abs_shap":0.2113044938,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"OnlineSecurity",
+    "label":"Online security",
+    "mean_abs_shap":0.2073439067,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"TechSupport",
+    "label":"Tech support",
+    "mean_abs_shap":0.1805108327,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"PaymentMethod",
+    "label":"Payment method",
+    "mean_abs_shap":0.1645040492,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"PaperlessBilling",
+    "label":"Paperless billing",
+    "mean_abs_shap":0.1223090684,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"MultipleLines",
+    "label":"Multiple lines",
+    "mean_abs_shap":0.1031200206,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"avg_monthly_spend",
+    "label":"Average historical monthly spend",
+    "mean_abs_shap":0.084841385,
+    "value_shap_correlation":0.682
+  },
+  {
+    "feature":"MonthlyCharges",
+    "label":"Monthly charges",
+    "mean_abs_shap":0.0825688291,
+    "value_shap_correlation":0.738
+  },
+  {
+    "feature":"tenure",
+    "label":"Tenure (months)",
+    "mean_abs_shap":0.0514048232,
+    "value_shap_correlation":-0.624
+  },
+  {
+    "feature":"OnlineBackup",
+    "label":"Online backup",
+    "mean_abs_shap":0.0488996746,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"monthly_charge_delta",
+    "label":"Current vs. historical price gap",
+    "mean_abs_shap":0.0422477487,
+    "value_shap_correlation":0.051
+  },
+  {
+    "feature":"SeniorCitizen",
+    "label":"Senior citizen",
+    "mean_abs_shap":0.0339995747,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"StreamingMovies",
+    "label":"Streaming movies",
+    "mean_abs_shap":0.0327993846,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"TotalCharges",
+    "label":"Total charges",
+    "mean_abs_shap":0.0320395023,
+    "value_shap_correlation":-0.518
+  },
+  {
+    "feature":"Dependents",
+    "label":"Has dependents",
+    "mean_abs_shap":0.0309008261,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"PhoneService",
+    "label":"Phone service",
+    "mean_abs_shap":0.0243807217,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"num_protection_services",
+    "label":"Protection\/support add-ons",
+    "mean_abs_shap":0.0238908526,
+    "value_shap_correlation":-0.92
+  },
+  {
+    "feature":"StreamingTV",
+    "label":"Streaming TV",
+    "mean_abs_shap":0.0236158188,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"is_auto_payment",
+    "label":"Automatic payment",
+    "mean_abs_shap":0.0052286742,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"gender",
+    "label":"Gender",
+    "mean_abs_shap":0.0031680823,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"Partner",
+    "label":"Has partner",
+    "mean_abs_shap":0.0024349486,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"num_services",
+    "label":"Number of services",
+    "mean_abs_shap":0.0022453388,
+    "value_shap_correlation":-0.291
+  },
+  {
+    "feature":"tenure_group",
+    "label":"Tenure band",
+    "mean_abs_shap":0.0022177452,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"DeviceProtection",
+    "label":"Device protection",
+    "mean_abs_shap":0.0018914628,
+    "value_shap_correlation":null
+  },
+  {
+    "feature":"has_family",
+    "label":"Has partner or dependents",
+    "mean_abs_shap":0.0,
+    "value_shap_correlation":null
+  }
+]

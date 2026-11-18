@@ -1,0 +1,5 @@
+segment,customers,avg_churn_probability,avg_monthly_charges,annual_revenue_at_risk,description
+Priority Rescue,1096,0.674,87.981,777908.87,High churn risk and high revenue. Act within 48 hours with a personal outreach and the strongest offers.
+Loyal VIP - Nurture,2402,0.203,91.967,537820.43,"Low risk, high revenue. Protect the relationship with loyalty perks and proactive service."
+Stable - Grow,3191,0.131,37.652,214041.65,"Low risk, lower revenue. Candidates for upsell and cross-sell campaigns."
+Cost-Efficient Save,354,0.639,52.65,145136.6,"High churn risk, lower revenue. Use low-cost, automated retention plays (contract migration, autopay incentives)."

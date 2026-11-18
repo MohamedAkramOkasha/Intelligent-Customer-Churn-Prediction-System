@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model artifacts are small (<2 MB) and committed so the repo runs right after cloning.
+# Uncomment to stop tracking them:
+# models/
+# data/processed/

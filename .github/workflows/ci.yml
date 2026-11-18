@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check src api dashboard tests
+      - name: Train (fast mode, verifies the training pipeline end to end)
+        run: python -m churn.train --fast
+        env:
+          PYTHONPATH: src
+      - name: Test
+        run: pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t churn-intelligence:ci .
+      - name: Smoke-test API container
+        run: |
+          docker run -d --name api -p 8000:8000 churn-intelligence:ci
+          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 2; done
+          curl -sf -X POST localhost:8000/predict -H 'Content-Type: application/json' \
+            -d '{"gender":"Female","SeniorCitizen":"No","Partner":"No","Dependents":"No","tenure":3,"PhoneService":"Yes","MultipleLines":"No","InternetService":"Fiber optic","OnlineSecurity":"No","OnlineBackup":"No","DeviceProtection":"No","TechSupport":"No","StreamingTV":"Yes","StreamingMovies":"No","Contract":"Month-to-month","PaperlessBilling":"Yes","PaymentMethod":"Electronic check","MonthlyCharges":89.1,"TotalCharges":265.3}'
