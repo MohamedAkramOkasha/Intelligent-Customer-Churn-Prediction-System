@@ -33,6 +33,19 @@ MODEL_DISPLAY = {
     "random_forest": "Random Forest",
     "xgboost": "XGBoost",
 }
+TABLE_ROW_HEIGHT = 40  # roomier rows than the 35px default
+# Readable headers shared by the customer tables (display only; data is unchanged).
+TABLE_COLUMNS = {
+    config.ID_COL: st.column_config.TextColumn("Customer", pinned=True),
+    "churn_probability": st.column_config.ProgressColumn("Churn prob.", format="percent",
+                                                         min_value=0, max_value=1),
+    "risk_tier": st.column_config.TextColumn("Risk tier", width="small"),
+    "segment": st.column_config.TextColumn("Segment"),
+    "MonthlyCharges": st.column_config.NumberColumn("Monthly $", format="$%.2f", width="small"),
+    "tenure": st.column_config.NumberColumn("Tenure", width="small"),
+    "PaymentMethod": st.column_config.TextColumn("Payment method"),
+    "InternetService": st.column_config.TextColumn("Internet"),
+}
 TIER_ICON = {"Low": "🟢", "Medium": "🟡", "High": "🟠", "Critical": "🔴"}
 
 st.set_page_config(page_title="Churn Intelligence", page_icon="📉", layout="wide")
@@ -42,9 +55,9 @@ st.markdown(
       .block-container {padding-top: 1.6rem; max-width: 1400px;}
       [data-testid="stMetricValue"] {font-size: 1.7rem;}
       .badge {display:inline-flex; align-items:center; gap:.4rem; padding:.2rem .65rem;
-              border-radius:999px; border:1px solid rgba(128,128,128,.35); font-weight:600;}
+              border-radius:999px; border:1px solid #2a3b5c; background:#16243d; font-weight:600;}
       .dot {width:.6rem; height:.6rem; border-radius:50%; display:inline-block;}
-      .muted {opacity:.72; font-size:.92rem;}
+      .muted {color:#9fb0c8; font-size:.92rem;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -155,12 +168,11 @@ def page_overview() -> None:
 
     st.subheader("Segments")
     st.dataframe(
-        summary.rename(columns={
+        summary.drop(columns="description").rename(columns={
             "segment": "Segment", "customers": "Customers", "avg_churn_probability": "Avg churn prob.",
             "avg_monthly_charges": "Avg monthly $", "annual_revenue_at_risk": "Revenue at risk $",
-            "description": "Recommended approach",
         }),
-        hide_index=True,
+        hide_index=True, row_height=TABLE_ROW_HEIGHT,
         width="stretch",
         column_config={
             "Avg churn prob.": st.column_config.ProgressColumn(format="percent", min_value=0, max_value=1),
@@ -168,13 +180,18 @@ def page_overview() -> None:
             "Avg monthly $": st.column_config.NumberColumn(format="$%.2f"),
         },
     )
+    # Long guidance text wraps here instead of being truncated inside a table cell.
+    for col, row in zip(st.columns(len(summary)), summary.itertuples()):
+        col.markdown(f"**{row.segment}**")
+        col.caption(row.description)
 
     st.subheader("What drives churn")
+    st.caption("Historical churn rate by customer attribute; dotted line = overall rate.")
     a, b, c = st.columns(3)
-    a.plotly_chart(charts.churn_rate_by(scored, "Contract", "Churn rate by contract"), width="stretch")
-    b.plotly_chart(charts.churn_rate_by(scored, "InternetService", "Churn rate by internet service"),
+    a.plotly_chart(charts.churn_rate_by(scored, "Contract", "By contract"), width="stretch")
+    b.plotly_chart(charts.churn_rate_by(scored, "InternetService", "By internet service"),
                    width="stretch")
-    c.plotly_chart(charts.churn_rate_by(scored, "PaymentMethod", "Churn rate by payment method"),
+    c.plotly_chart(charts.churn_rate_by(scored, "PaymentMethod", "By payment method"),
                    width="stretch")
     left, right = st.columns(2)
     left.plotly_chart(charts.tenure_curve(scored), width="stretch")
@@ -323,16 +340,15 @@ def page_planner() -> None:
               delta_color="normal" if roi > 0 else "inverse")
 
     st.subheader("Priority call list")
-    cols = [config.ID_COL, "churn_probability", "risk_tier", "segment", "MonthlyCharges", "tenure",
-            "Contract", "PaymentMethod", "InternetService", "annual_revenue_at_risk"]
+    cols = [config.ID_COL, "churn_probability", "annual_revenue_at_risk", "risk_tier", "segment",
+            "MonthlyCharges", "tenure", "Contract", "PaymentMethod", "InternetService"]
     priority = target.sort_values("annual_revenue_at_risk", ascending=False)[cols]
     st.dataframe(
-        priority.head(500), hide_index=True, width="stretch", height=380,
+        priority.head(500), hide_index=True, row_height=TABLE_ROW_HEIGHT, width="stretch", height=380,
         column_config={
-            "churn_probability": st.column_config.ProgressColumn("Churn prob.", format="percent",
-                                                                 min_value=0, max_value=1),
-            "annual_revenue_at_risk": st.column_config.NumberColumn("Revenue at risk", format="$%.0f"),
-            "MonthlyCharges": st.column_config.NumberColumn("Monthly $", format="$%.2f"),
+            **TABLE_COLUMNS,
+            "annual_revenue_at_risk": st.column_config.NumberColumn("Revenue at risk", format="$%.0f",
+                                                                    width="small"),
         },
     )
     st.download_button("Download full call list (CSV)", priority.to_csv(index=False).encode(),
@@ -377,9 +393,15 @@ def page_batch() -> None:
 
     tiers = st.multiselect("Filter tiers", charts.TIER_ORDER, default=charts.TIER_ORDER)
     view = out[out["risk_tier"].isin(tiers)].sort_values("churn_probability", ascending=False)
-    st.dataframe(view, hide_index=True, width="stretch", height=380,
-                 column_config={"churn_probability": st.column_config.ProgressColumn(
-                     "Churn prob.", format="percent", min_value=0, max_value=1)})
+    # Show the scoring results first, then the customer's input fields.
+    lead = [c for c in [config.ID_COL, "churn_probability", "risk_tier", "segment", "will_churn",
+                        "annual_revenue_at_risk"] if c in view.columns]
+    view = view[lead + [c for c in view.columns if c not in lead]]
+    st.dataframe(view, hide_index=True, row_height=TABLE_ROW_HEIGHT, width="stretch", height=380,
+                 column_config={**TABLE_COLUMNS,
+                                "will_churn": st.column_config.CheckboxColumn("Predicted churn", width="small"),
+                                "annual_revenue_at_risk": st.column_config.NumberColumn(
+                                    "Revenue at risk", format="$%.0f", width="small")})
     st.download_button("Download scored CSV", view.to_csv(index=False).encode(), "scored_customers.csv",
                        "text/csv")
 
@@ -399,7 +421,7 @@ def page_models() -> None:
         "brier": "Brier ↓", "top20_capture": "Churners in top 20%", "threshold": "Threshold"})
     st.dataframe(table.style.format(precision=3).highlight_max(
         subset=["CV ROC-AUC", "Test ROC-AUC", "PR-AUC", "F1", "Recall", "Churners in top 20%"],
-        props="font-weight:700"), hide_index=True, width="stretch")
+        props="font-weight:700"), hide_index=True, row_height=TABLE_ROW_HEIGHT, width="stretch")
 
     st.plotly_chart(charts.metric_comparison(comp), width="stretch")
     left, right = st.columns(2)

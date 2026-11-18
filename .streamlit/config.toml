@@ -6,4 +6,10 @@ maxUploadSize = 50
 gatherUsageStats = false
 
 [theme]
-primaryColor = "#2a78d6"
+base = "dark"
+primaryColor = "#3987e5"
+backgroundColor = "#0e1a2f"
+secondaryBackgroundColor = "#16243d"
+textColor = "#e6edf7"
+borderColor = "#2a3b5c"
+font = "sans-serif"
