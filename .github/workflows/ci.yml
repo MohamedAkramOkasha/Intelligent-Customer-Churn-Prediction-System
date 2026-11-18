@@ -34,7 +34,11 @@ jobs:
         run: docker build -t churn-intelligence:ci .
       - name: Smoke-test API container
         run: |
-          docker run -d --name api -p 8000:8000 churn-intelligence:ci
+          export CHURN_API_KEY="ci-$(openssl rand -hex 16)"
+          docker run -d --name api -p 8000:8000 -e CHURN_API_KEY churn-intelligence:ci
           for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 2; done
-          curl -sf -X POST localhost:8000/predict -H 'Content-Type: application/json' \
+          # A protected endpoint without a key must be rejected with 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8000/model/info)" = "401"
+          curl -sf localhost:8000/model/info -H "X-API-Key: $CHURN_API_KEY"
+          curl -sf -X POST localhost:8000/predict -H "X-API-Key: $CHURN_API_KEY" -H 'Content-Type: application/json' \
             -d '{"gender":"Female","SeniorCitizen":"No","Partner":"No","Dependents":"No","tenure":3,"PhoneService":"Yes","MultipleLines":"No","InternetService":"Fiber optic","OnlineSecurity":"No","OnlineBackup":"No","DeviceProtection":"No","TechSupport":"No","StreamingTV":"Yes","StreamingMovies":"No","Contract":"Month-to-month","PaperlessBilling":"Yes","PaymentMethod":"Electronic check","MonthlyCharges":89.1,"TotalCharges":265.3}'

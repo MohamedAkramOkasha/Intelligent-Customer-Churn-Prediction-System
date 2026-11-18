@@ -14,14 +14,72 @@ def service():
     return ChurnService()
 
 
+TEST_KEY = "test-key-0123456789"
+
+
 @pytest.fixture(scope="module")
 def client():
+    """Authenticated client: the server key is set and every request carries it."""
     from fastapi.testclient import TestClient
 
     from api.main import app
 
-    with TestClient(app) as c:
+    mp = pytest.MonkeyPatch()
+    mp.setenv("CHURN_API_KEY", TEST_KEY)
+    with TestClient(app, headers={"X-API-Key": TEST_KEY}) as c:
         yield c
+    mp.undo()
+
+
+@pytest.fixture
+def anon_client(monkeypatch):
+    """Client that sends no API key (server key still configured)."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    monkeypatch.setenv("CHURN_API_KEY", TEST_KEY)
+    return TestClient(app)
+
+
+# --------------------------------------------------------------------------- #
+# Authentication
+# --------------------------------------------------------------------------- #
+PROTECTED = [("get", "/model/info"), ("get", "/model/feature-importance"),
+             ("post", "/predict"), ("post", "/predict/batch")]
+
+
+@pytest.mark.parametrize("method,path", PROTECTED)
+def test_protected_endpoints_require_key(anon_client, method, path, high_risk):
+    body = {"customers": [high_risk]} if path == "/predict/batch" else high_risk
+    r = anon_client.request(method.upper(), path, json=body if method == "post" else None)
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Missing or invalid API key"
+
+
+def test_wrong_key_rejected(anon_client):
+    r = anon_client.get("/model/info", headers={"X-API-Key": "not-the-key"})
+    assert r.status_code == 401
+
+
+def test_health_and_root_are_public(anon_client):
+    assert anon_client.get("/health").status_code == 200
+    assert anon_client.get("/").status_code == 200
+
+
+def test_unconfigured_server_fails_closed(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    monkeypatch.delenv("CHURN_API_KEY", raising=False)
+    r = TestClient(app).get("/model/info", headers={"X-API-Key": "anything"})
+    assert r.status_code == 503
+
+
+def test_openapi_declares_api_key_scheme(anon_client):
+    schemes = anon_client.get("/openapi.json").json()["components"]["securitySchemes"]
+    assert any(s.get("type") == "apiKey" and s.get("name") == "X-API-Key" for s in schemes.values())
 
 
 def test_model_ranks_risky_customer_higher(service, high_risk, low_risk):

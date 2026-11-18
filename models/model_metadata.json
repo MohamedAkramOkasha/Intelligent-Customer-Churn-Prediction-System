@@ -2,7 +2,7 @@
   "model_name": "XGBoost",
   "model_key": "xgboost",
   "version": "1.0.0",
-  "trained_at": "2026-11-18T10:06:52+00:00",
+  "trained_at": "2026-11-18T14:06:54+00:00",
   "selection_metric": "cv_roc_auc",
   "cv_roc_auc": 0.8507,
   "decision_threshold": 0.3469,
@@ -70,5 +70,29 @@
     "MonthlyCharges",
     "TotalCharges"
   ],
+  "profit_threshold": 0.2,
+  "profit_assumptions": {
+    "cost_per_customer": 40.0,
+    "save_rate": 0.25,
+    "revenue_horizon_months": 12
+  },
+  "test_campaign_by_threshold": {
+    "f1": {
+      "threshold": 0.35,
+      "contacted": 477,
+      "churners_reached": 276,
+      "revenue_saved": 62575.2,
+      "cost": 19080.0,
+      "net_profit": 43495.2
+    },
+    "profit": {
+      "threshold": 0.2,
+      "contacted": 675,
+      "churners_reached": 320,
+      "revenue_saved": 71247.45,
+      "cost": 27000.0,
+      "net_profit": 44247.45
+    }
+  },
   "fast_mode": false
 }

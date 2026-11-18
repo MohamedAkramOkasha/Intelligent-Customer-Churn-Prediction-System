@@ -58,7 +58,9 @@ from sklearn.tree import DecisionTreeClassifier  # noqa: E402
 from xgboost import XGBClassifier  # noqa: E402
 
 from churn import __version__, config  # noqa: E402
+from churn.calibration import calibration_report  # noqa: E402
 from churn.data import load_dataset, split  # noqa: E402
+from churn.economics import best_profit_threshold, customer_value, net_profit  # noqa: E402
 from churn.explain import ChurnExplainer  # noqa: E402
 from churn.features import FeatureEngineer, build_preprocessor  # noqa: E402
 from churn.segment import segment_customers, segment_summary  # noqa: E402
@@ -279,7 +281,7 @@ def train(fast: bool = False) -> dict[str, Any]:
         "logistic_regression": 25, "decision_tree": 40, "random_forest": 30, "xgboost": 50
     }
 
-    results, fitted, test_probas = [], {}, {}
+    results, fitted, test_probas, oof_probas = [], {}, {}, {}
     for name, (estimator, space) in candidate_models().items():
         t0 = time.time()
         search = RandomizedSearchCV(
@@ -321,6 +323,7 @@ def train(fast: bool = False) -> dict[str, Any]:
         results.append(row)
         fitted[name] = best
         test_probas[name] = proba
+        oof_probas[name] = oof
         logger.info(
             "%-20s CV AUC %.4f | test AUC %.4f | F1 %.4f @ %.2f | %.1fs",
             MODEL_DISPLAY[name], row["cv_roc_auc"], row["roc_auc"], row["f1"], threshold,
@@ -363,6 +366,26 @@ def train(fast: bool = False) -> dict[str, Any]:
     }
     joblib.dump(bundle, config.MODEL_PATH, compress=3)
 
+    # ---- Out-of-fold predictions + profit-maximising threshold -------------
+    # Chosen on the same out-of-fold training predictions as the F1 threshold, using the
+    # default campaign assumptions; the dashboard recomputes it for other assumptions.
+    oof = pd.DataFrame({
+        config.ID_COL: ids_train.to_numpy(),
+        "oof_probability": oof_probas[best_key].round(6),
+        "actual_churn": y_train.to_numpy(),
+        "MonthlyCharges": X_train["MonthlyCharges"].to_numpy(),
+    })
+    oof.to_csv(config.OOF_PATH, index=False)
+    profit_threshold = best_profit_threshold(
+        oof["actual_churn"], oof["oof_probability"], customer_value(oof["MonthlyCharges"]))
+    test_value = customer_value(X_test["MonthlyCharges"])
+    # Same 4-decimal rounding as the scored customer file, so these figures match the dashboard.
+    best_test_proba = np.round(test_probas[best_key], 4)
+    threshold_comparison = {
+        name: net_profit(y_test.to_numpy(), best_test_proba, test_value, t)
+        for name, t in (("f1", float(best_row["threshold"])), ("profit", profit_threshold))
+    }
+
     metric_keys = ["roc_auc", "pr_auc", "accuracy", "precision", "recall", "f1", "brier", "top20_capture"]
     metadata = {
         "model_name": MODEL_DISPLAY[best_key],
@@ -381,6 +404,15 @@ def train(fast: bool = False) -> dict[str, Any]:
         "shap_output_units": explainer.output_units,
         "risk_tiers": config.RISK_TIERS,
         "features": config.RAW_FEATURES,
+        "profit_threshold": profit_threshold,
+        "profit_assumptions": {
+            "cost_per_customer": config.DEFAULT_COST_PER_CUSTOMER,
+            "save_rate": config.DEFAULT_SAVE_RATE,
+            "revenue_horizon_months": config.REVENUE_HORIZON_MONTHS,
+        },
+        "test_campaign_by_threshold": {
+            k: {m: round(v, 2) for m, v in d.items()} for k, d in threshold_comparison.items()
+        },
         "fast_mode": fast,
     }
     config.METADATA_PATH.write_text(json.dumps(metadata, indent=2))
@@ -393,6 +425,8 @@ def train(fast: bool = False) -> dict[str, Any]:
     scored["split"] = np.where(ids.isin(set(ids_test)), "test", "train")
     scored.to_csv(config.SCORED_PATH, index=False)
     segment_summary(scored).to_csv(config.PROCESSED_DIR / "segment_summary.csv", index=False)
+    config.CALIBRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
+    calibration_report(scored).to_csv(config.CALIBRATION_PATH, index=False)
 
     logger.info("Done in %.1fs. Artifacts written to %s", time.time() - started, config.MODELS_DIR)
     return metadata

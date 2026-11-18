@@ -4,6 +4,9 @@ services:
     image: churn-intelligence:latest
     container_name: churn-api
     command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    environment:
+      # Required. Put it in a .env file next to this compose file (see .env.example).
+      CHURN_API_KEY: ${CHURN_API_KEY:?Set CHURN_API_KEY in .env or your shell}
     ports:
       - "8000:8000"
     healthcheck:
@@ -20,6 +23,7 @@ services:
     command: ["streamlit", "run", "dashboard/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
     environment:
       CHURN_API_URL: http://api:8000
+      CHURN_API_KEY: ${CHURN_API_KEY:?Set CHURN_API_KEY in .env or your shell}
     ports:
       - "8501:8501"
     depends_on:

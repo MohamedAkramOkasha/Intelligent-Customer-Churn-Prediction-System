@@ -33,7 +33,7 @@ project is an end-to-end churn system built on the
 | **Explainability** | SHAP, global and per customer, with one-hot columns folded back into readable features |
 | **Risk segmentation** | 4 risk tiers × customer value → 4 actionable segments with revenue at risk |
 | **Retention recommendations** | Personalised actions ranked by *each customer's own* SHAP churn drivers, with campaign economics |
-| **Deployment** | FastAPI REST service, 6-page Streamlit dashboard, Docker Compose, GitHub Actions CI |
+| **Deployment** | FastAPI REST service with API-key authentication, 6-page Streamlit dashboard, Docker Compose, GitHub Actions CI |
 
 ## Architecture
 
@@ -85,6 +85,51 @@ evaluated once on the held-out test set (1,409 customers). Metrics use each mode
   <img src="reports/figures/model_comparison.png" width="70%" alt="Bar chart comparing test metrics across models">
   <img src="reports/figures/confusion_matrix.png" width="27%" alt="Confusion matrix of the XGBoost model">
 </p>
+
+### Calibration by risk tier and segment
+
+Probabilities drive revenue at risk directly, so they must be right *inside each group*, not
+just on average. On the held-out test set, mean predicted probability vs. observed churn rate
+(95% Wilson interval on the observed rate):
+
+| Group | Customers | Predicted | Actual (95% CI) | Gap | Flag |
+|---|---|---|---|---|---|
+| Low risk | 793 | 8.1% | 8.3% (6.6-10.5%) | -0.2 pp | ok |
+| Medium risk | 329 | 37.1% | 35.6% (30.6-40.9%) | +1.5 pp | ok |
+| High risk | 213 | 61.2% | 61.5% (54.8-67.8%) | -0.3 pp | ok |
+| Critical risk | 74 | 81.6% | 81.1% (70.7-88.4%) | +0.5 pp | small sample |
+| Priority Rescue | 216 | 67.5% | 67.6% (61.1-73.5%) | -0.1 pp | ok |
+| Cost-Efficient Save | 71 | 63.2% | 63.4% (51.8-73.6%) | -0.2 pp | small sample |
+| Loyal VIP - Nurture | 464 | 21.2% | 20.0% (16.7-23.9%) | +1.1 pp | ok |
+| Stable - Grow | 658 | 13.4% | 13.7% (11.3-16.5%) | -0.3 pp | ok |
+
+Every prediction lies inside the observed rate's interval (largest gap 1.5 points). Groups with
+fewer than 100 customers are flagged as too small to judge; a *large gap* flag requires a gap
+above 5 points **and** a prediction outside the interval. Regenerate with
+`python -m churn.calibration` (writes `reports/calibration_report.csv`); the dashboard's
+*Model performance* page shows it as a chart.
+
+### Decision threshold: F1 vs. profit
+
+The production threshold (0.35) maximises F1, which counts every churner and every false alarm
+equally. A retention team cares about money instead, so a second threshold maximises
+**expected net campaign profit** using the Retention planner's assumptions:
+
+`net profit = save rate × 12 months of revenue from each churner contacted − cost × everyone contacted`
+
+Both thresholds are chosen on out-of-fold training predictions and compared on the test set
+(defaults: $40 per contact, 25% save rate):
+
+| Threshold | Contacted | Churners reached | Precision | Net profit (test set) |
+|---|---|---|---|---|
+| F1-optimal **0.35** | 477 | 276 | 58% | $43,495 |
+| Profit-optimal **0.20** | 675 | 320 | 47% | $44,247 |
+
+Because a saved customer is worth far more than a $40 contact, it pays to reach further down the
+risk ranking, accepting lower precision. Here the gain is modest (about $750, since the profit curve
+is flat near its peak), but the gap grows as contacts get cheaper or saves more valuable. The
+dashboard recomputes the profit threshold live as you change the assumptions in the sidebar. The
+API's `will_churn` flag keeps using the F1 threshold.
 
 ## Key insights
 
@@ -161,8 +206,12 @@ cd Intelligent-Customer-Churn-Prediction-System
 ```
 
 ```bash
+cp .env.example .env          # then set CHURN_API_KEY to a long random value, e.g.:
+python -c "import secrets; print(secrets.token_urlsafe(32))"
 docker compose up --build
 ```
+
+Compose refuses to start without `CHURN_API_KEY`; `.env` is git-ignored and excluded from the image.
 
 | Service | URL |
 |---|---|
@@ -182,6 +231,7 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -r requirements-dev.txt
 
 export PYTHONPATH=src            # Windows PowerShell: $env:PYTHONPATH="src"
+export CHURN_API_KEY=<secret>    # Windows PowerShell: $env:CHURN_API_KEY="<secret>"
 python -m churn.train            # ~2.5 min full search (or --fast for ~40 s)
 uvicorn api.main:app --reload    # http://localhost:8000/docs
 streamlit run dashboard/app.py   # http://localhost:8501
@@ -191,16 +241,23 @@ A `Makefile` wraps these: `make train`, `make api`, `make dashboard`, `make test
 
 ## API
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Liveness + model-loaded check |
-| `GET` | `/model/info` | Model name, threshold, test metrics |
-| `GET` | `/model/feature-importance?top_n=15` | Global mean \|SHAP\| ranking |
-| `POST` | `/predict?explain=true` | One customer → probability, tier, segment, SHAP drivers, retention plan |
-| `POST` | `/predict/batch` | Up to 5,000 customers, with portfolio summary |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/health` | public | Liveness + model-loaded check |
+| `GET` | `/model/info` | API key | Model name, threshold, test metrics |
+| `GET` | `/model/feature-importance?top_n=15` | API key | Global mean \|SHAP\| ranking |
+| `POST` | `/predict?explain=true` | API key | One customer → probability, tier, segment, SHAP drivers, retention plan |
+| `POST` | `/predict/batch` | API key | Up to 5,000 customers, with portfolio summary |
+
+**Authentication.** Send the key in an `X-API-Key` header. The server reads the expected key
+from the `CHURN_API_KEY` environment variable (it is never stored in code or images) and
+compares it in constant time. A missing or wrong key returns `401`; if the server itself has no
+key configured, protected endpoints fail closed with `503` rather than running unprotected.
+In Swagger UI, click **Authorize** and paste the key.
 
 ```bash
-curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d '{
+curl -X POST http://localhost:8000/predict -H "X-API-Key: $CHURN_API_KEY" \
+  -H "Content-Type: application/json" -d '{
   "customerID": "DEMO-001", "gender": "Female", "SeniorCitizen": "No", "Partner": "No",
   "Dependents": "No", "tenure": 3, "PhoneService": "Yes", "MultipleLines": "No",
   "InternetService": "Fiber optic", "OnlineSecurity": "No", "OnlineBackup": "No",
@@ -295,9 +352,9 @@ Inputs are validated by Pydantic: unknown categories, negative charges or missin
 |---|---|
 | **Executive overview** | KPIs, risk-tier distribution, revenue at risk by segment, churn drivers, tenure curve |
 | **Customer predictor** | Edit any profile (or load a test-set customer) → gauge, SHAP drivers, retention plan |
-| **Retention planner** | Campaign ROI simulator + prioritised, downloadable call list |
+| **Retention planner** | Campaign ROI simulator + prioritised, downloadable call list (save rate and cost per contact are set in the sidebar and shared with the profit threshold) |
 | **Batch scoring** | Upload a CSV (try `data/sample/sample_customers.csv`) → scores, tiers, segments, download |
-| **Model performance** | Comparison table, interactive ROC/PR curves, confusion matrix |
+| **Model performance** | Comparison table, ROC/PR curves, confusion matrix, calibration by tier & segment, F1 vs. profit threshold |
 | **Explainability** | Global SHAP importance, beeswarm, feature-effect explorer |
 
 ## Project structure
@@ -317,14 +374,17 @@ Inputs are validated by Pydantic: unknown categories, negative charges or missin
 │   ├── explain.py           # SHAP wrapper (any model type)
 │   ├── segment.py           # Risk tiers & value segments
 │   ├── recommend.py         # Retention rules & ranking
+│   ├── economics.py         # Campaign profit & profit-optimal threshold
+│   ├── calibration.py       # Per-tier / per-segment calibration report
 │   └── predict.py           # ChurnService (shared inference)
 ├── notebooks/01_eda.ipynb   # Executed EDA notebook
 ├── scripts/                 # Notebook generator
 ├── models/                  # Trained bundle, metadata, comparison, curves, SHAP
 ├── reports/figures/         # Generated plots
 ├── data/raw | processed/    # Source data & scored customers
-├── tests/                   # 37 tests: data, features, segmentation, recommendations, model, API, dashboard
-├── Dockerfile · docker-compose.yml · Makefile · pyproject.toml
+├── tests/                   # 54 tests: data, features, segmentation, recommendations, economics,
+│                            #           calibration, model, API + auth, dashboard
+├── Dockerfile · docker-compose.yml · .env.example · Makefile · pyproject.toml
 └── .github/workflows/ci.yml # Lint → train → test → Docker build & smoke test
 ```
 
@@ -339,17 +399,22 @@ Inputs are validated by Pydantic: unknown categories, negative charges or missin
   out-of-fold predictions instead (Brier score 0.135).
 - **Business metrics alongside ML metrics:** top-20% capture rate, revenue at risk, break-even
   save rate, campaign ROI.
+- **Two thresholds, same discipline.** The F1 and profit thresholds are both chosen on
+  out-of-fold training predictions (saved to `models/oof_predictions.csv`) and only compared on
+  the test set, so neither is tuned on the data it is judged by.
 
 ## Testing
 
 ```bash
-pytest     # 37 tests
+pytest     # 54 tests
 ```
 
 Covers data cleaning and validation, feature engineering edge cases (tenure 0), segment
-boundaries, recommendation eligibility and SHAP-based ranking, SHAP additivity, every API
-endpoint including validation errors, and a render test of all six dashboard pages
-(Streamlit `AppTest`). CI also builds the Docker image and smoke-tests the running container.
+boundaries, recommendation eligibility and SHAP-based ranking, SHAP additivity, profit and
+threshold maths, calibration flags and confidence intervals, every API endpoint including
+validation errors and authentication (401 without/with a wrong key, public `/health`, 503 when
+no key is configured), and a render test of all six dashboard pages (Streamlit `AppTest`). CI
+also builds the Docker image and smoke-tests the running container, including a 401 check.
 
 ## Limitations & future work
 
@@ -357,8 +422,10 @@ endpoint including validation errors, and a render test of all six dashboard pag
   (e.g. Cox / XGBoost-AFT) would answer *when*, not just *whether*.
 - Recommendation impacts and costs are **illustrative assumptions**. In production they should
   be learned from A/B-tested campaigns (uplift modelling).
-- Next steps: model monitoring and drift detection, an MLflow model registry, probability
-  calibration checks per segment, and authentication on the API.
+- The profit threshold uses realised outcomes and fixed cost/save-rate assumptions; uplift
+  modelling would target customers the campaign can actually change, not just likely churners.
+- Next steps: model monitoring and drift detection, an MLflow model registry, key rotation /
+  per-client keys and rate limiting on the API.
 
 ## Acknowledgements
 

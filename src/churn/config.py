@@ -149,3 +149,24 @@ SEGMENT_DESCRIPTIONS = {
     "Stable - Grow": "Low risk, lower revenue. Candidates for upsell and "
     "cross-sell campaigns.",
 }
+
+# --------------------------------------------------------------------------- #
+# Retention-campaign economics (shared by the Retention planner and the
+# profit-based decision threshold)
+# --------------------------------------------------------------------------- #
+OOF_PATH = MODELS_DIR / "oof_predictions.csv"
+DEFAULT_SAVE_RATE = 0.25          # share of contacted churners the campaign retains
+DEFAULT_COST_PER_CUSTOMER = 40.0  # USD per contacted customer
+REVENUE_HORIZON_MONTHS = 12       # value of a saved customer = MonthlyCharges x horizon
+
+# --------------------------------------------------------------------------- #
+# Calibration report
+# --------------------------------------------------------------------------- #
+CALIBRATION_PATH = REPORTS_DIR / "calibration_report.csv"
+CALIBRATION_MIN_SAMPLE = 100   # groups smaller than this are flagged "small sample"
+CALIBRATION_MAX_GAP = 0.05     # |predicted - actual| above this AND outside the 95% CI -> "large gap"
+
+# --------------------------------------------------------------------------- #
+# API
+# --------------------------------------------------------------------------- #
+API_KEY_ENV = "CHURN_API_KEY"  # the API key is read from this environment variable, never stored

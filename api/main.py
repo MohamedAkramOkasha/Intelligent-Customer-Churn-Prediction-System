@@ -1,23 +1,32 @@
 """FastAPI service for churn prediction, explanation and retention planning.
 
 Run locally:
+    export CHURN_API_KEY=<a long random secret>
     uvicorn api.main:app --reload
 Docs:
-    http://localhost:8000/docs
+    http://localhost:8000/docs   (click "Authorize" and paste the key)
+
+Authentication: every endpoint except ``/`` and ``/health`` requires the key from the
+``CHURN_API_KEY`` environment variable in an ``X-API-Key`` header. A missing or wrong key
+returns 401. If the server has no key configured it fails closed with 503 instead of
+silently running unprotected.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import secrets
 import sys
 import time
 from collections import Counter
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:  # allow `uvicorn api.main:app` without installing
@@ -36,6 +45,8 @@ async def lifespan(app: FastAPI):
     try:
         service = get_service()
         logger.info("Loaded model: %s", service.model_name)
+        if not os.getenv(config.API_KEY_ENV):
+            logger.warning("%s is not set: protected endpoints will return 503", config.API_KEY_ENV)
     except FileNotFoundError as exc:  # keep /health up so the problem is visible
         logger.error("%s", exc)
     yield
@@ -62,6 +73,31 @@ async def timing_header(request: Request, call_next):
     return response
 
 
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False,
+                              description=f"API key (server reads it from ${config.API_KEY_ENV})")
+
+
+def require_api_key(api_key: str | None = Security(api_key_header)) -> None:
+    """Reject requests without the correct X-API-Key header.
+
+    The expected key is read from the environment on every request (never hard-coded,
+    never logged) and compared in constant time to avoid timing attacks.
+    """
+    expected = os.getenv(config.API_KEY_ENV)
+    if not expected:
+        logger.error("%s is not set; refusing request", config.API_KEY_ENV)
+        raise HTTPException(status_code=503, detail="API key is not configured on the server")
+    if not api_key or not secrets.compare_digest(api_key.encode(), expected.encode()):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid API key",
+            headers={"WWW-Authenticate": "API-Key"},
+        )
+
+
+protected = [Depends(require_api_key)]
+
+
 def _service() -> ChurnService:
     try:
         return get_service()
@@ -81,16 +117,17 @@ def root():
 
 @app.get("/health", tags=["meta"])
 def health():
+    """Public liveness check (no API key required)."""
     model_ready = config.MODEL_PATH.exists()
     return {"status": "ok" if model_ready else "degraded", "model_loaded": model_ready}
 
 
-@app.get("/model/info", tags=["model"])
+@app.get("/model/info", tags=["model"], dependencies=protected)
 def model_info():
     return _service().info()
 
 
-@app.get("/model/feature-importance", tags=["model"])
+@app.get("/model/feature-importance", tags=["model"], dependencies=protected)
 def feature_importance(top_n: int = Query(15, ge=1, le=50)):
     if not config.GLOBAL_IMPORTANCE_PATH.exists():
         raise HTTPException(status_code=404, detail="Global importance not computed yet")
@@ -98,7 +135,7 @@ def feature_importance(top_n: int = Query(15, ge=1, le=50)):
     return {"units": _service().explainer.output_units, "features": data[:top_n]}
 
 
-@app.post("/predict", response_model=Prediction, tags=["prediction"])
+@app.post("/predict", response_model=Prediction, tags=["prediction"], dependencies=protected)
 def predict(customer: Customer, explain: bool = Query(True, description="Include SHAP + plan")):
     """Score one customer, with SHAP drivers and a retention plan by default."""
     service = _service()
@@ -109,7 +146,7 @@ def predict(customer: Customer, explain: bool = Query(True, description="Include
     return {"customerID": customer.customerID, **result}
 
 
-@app.post("/predict/batch", response_model=BatchResponse, tags=["prediction"])
+@app.post("/predict/batch", response_model=BatchResponse, tags=["prediction"], dependencies=protected)
 def predict_batch(request: BatchRequest):
     """Score up to 5,000 customers; explanations are optional (slower)."""
     service = _service()

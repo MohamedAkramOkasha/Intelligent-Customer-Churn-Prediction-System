@@ -1,0 +1,9 @@
+group_type,group,n,predicted_rate,actual_rate,ci_low,ci_high,gap,flag
+risk_tier,Low,793,0.0808,0.0832,0.066,0.1045,-0.0024,ok
+risk_tier,Medium,329,0.3707,0.3556,0.3058,0.4087,0.0151,ok
+risk_tier,High,213,0.612,0.615,0.5482,0.6778,-0.003,ok
+risk_tier,Critical,74,0.8157,0.8108,0.7071,0.8838,0.0049,small sample
+segment,Priority Rescue,216,0.6752,0.6759,0.6109,0.7348,-0.0008,ok
+segment,Cost-Efficient Save,71,0.6321,0.6338,0.5176,0.7363,-0.0017,small sample
+segment,Loyal VIP - Nurture,464,0.2117,0.2004,0.1665,0.2392,0.0112,ok
+segment,Stable - Grow,658,0.1335,0.1368,0.1126,0.1651,-0.0033,ok

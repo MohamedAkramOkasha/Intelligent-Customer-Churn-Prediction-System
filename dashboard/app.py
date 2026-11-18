@@ -23,6 +23,9 @@ for p in (ROOT / "src", ROOT / "dashboard"):
 import charts  # noqa: E402
 
 from churn import config  # noqa: E402
+from churn.calibration import calibration_report  # noqa: E402
+from churn.economics import best_profit_threshold, customer_value, net_profit  # noqa: E402
+from churn.economics import profit_curve as compute_profit_curve  # noqa: E402
 from churn.predict import ChurnService  # noqa: E402
 from churn.segment import segment_customers, segment_summary  # noqa: E402
 
@@ -58,6 +61,7 @@ st.markdown(
               border-radius:999px; border:1px solid #2a3b5c; background:#16243d; font-weight:600;}
       .dot {width:.6rem; height:.6rem; border-radius:50%; display:inline-block;}
       .muted {color:#9fb0c8; font-size:.92rem;}
+      .chart-title {color:#e2e8f0; font-size:1rem; font-weight:600; margin:.2rem 0 .1rem .2rem;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -93,12 +97,27 @@ def score_one(record: dict) -> tuple[dict, str]:
         try:
             import requests
 
-            r = requests.post(f"{API_URL}/predict", json=record, timeout=15)
+            headers = {"X-API-Key": os.getenv(config.API_KEY_ENV, "")}
+            r = requests.post(f"{API_URL}/predict", json=record, headers=headers, timeout=15)
+            if r.status_code == 401:
+                raise RuntimeError(f"API rejected the key; set {config.API_KEY_ENV} for the dashboard")
             r.raise_for_status()
             return r.json(), "FastAPI"
         except Exception as exc:  # noqa: BLE001 - surface and fall back
             st.warning(f"API unavailable ({exc}); scoring locally instead.")
     return load_service().score([record])[0], "local model"
+
+
+def show_chart(container, fig) -> None:
+    """Render a chart's title as text above it, then the figure with our own layout.
+
+    Titles live outside the Plotly figure so they can never overlap a legend, and
+    theme=None stops Streamlit's theme from overriding the figure layout.
+    """
+    meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
+    if meta.get("title"):
+        container.markdown(f'<div class="chart-title">{meta["title"]}</div>', unsafe_allow_html=True)
+    container.plotly_chart(fig, width="stretch", theme=None)
 
 
 def badge(tier: str) -> str:
@@ -141,6 +160,13 @@ with st.sidebar:
         f"threshold {meta['decision_threshold']:.2f}"
     )
     st.caption(f"Scoring via: **{'FastAPI ' + API_URL if API_URL else 'in-process model'}**")
+    st.divider()
+    st.caption("Campaign assumptions (Retention planner and profit threshold)")
+    SAVE_RATE = st.slider("Expected save rate", 0.05, 0.6, config.DEFAULT_SAVE_RATE, 0.05,
+                          help="Share of contacted customers who would have churned that the "
+                               "campaign retains.")
+    COST = st.number_input("Cost per contacted customer ($)", 0.0, 500.0,
+                           config.DEFAULT_COST_PER_CUSTOMER, 5.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -162,9 +188,9 @@ def page_overview() -> None:
               delta_color="off")
 
     left, right = st.columns(2)
-    left.plotly_chart(charts.tier_distribution(scored), width="stretch", theme=None)
+    show_chart(left, charts.tier_distribution(scored))
     summary = segment_summary(scored)
-    right.plotly_chart(charts.segment_revenue(summary), width="stretch", theme=None)
+    show_chart(right, charts.segment_revenue(summary))
 
     st.subheader("Segments")
     st.dataframe(
@@ -188,14 +214,12 @@ def page_overview() -> None:
     st.subheader("What drives churn")
     st.caption("Historical churn rate by customer attribute; dotted line = overall rate.")
     a, b, c = st.columns(3)
-    a.plotly_chart(charts.churn_rate_by(scored, "Contract", "By contract"), width="stretch", theme=None)
-    b.plotly_chart(charts.churn_rate_by(scored, "InternetService", "By internet service"),
-                   width="stretch", theme=None)
-    c.plotly_chart(charts.churn_rate_by(scored, "PaymentMethod", "By payment method"),
-                   width="stretch", theme=None)
+    show_chart(a, charts.churn_rate_by(scored, "Contract", "By contract"))
+    show_chart(b, charts.churn_rate_by(scored, "InternetService", "By internet service"))
+    show_chart(c, charts.churn_rate_by(scored, "PaymentMethod", "By payment method"))
     left, right = st.columns(2)
-    left.plotly_chart(charts.tenure_curve(scored), width="stretch", theme=None)
-    right.plotly_chart(charts.probability_histogram(scored[scored["split"] == "test"]), width="stretch", theme=None)
+    show_chart(left, charts.tenure_curve(scored))
+    show_chart(right, charts.probability_histogram(scored[scored["split"] == "test"]))
     right.caption("Histogram uses held-out test customers only.")
 
 
@@ -253,7 +277,7 @@ def customer_form(defaults: dict, key: str) -> dict:
 def render_result(result: dict, source: str) -> None:
     tier = result["risk_tier"]
     g, info = st.columns([1, 1.4])
-    g.plotly_chart(charts.gauge(result["churn_probability"], tier), width="stretch", theme=None)
+    show_chart(g, charts.gauge(result["churn_probability"], tier))
     with info:
         st.markdown(f"### {TIER_ICON[tier]} {badge(tier)}", unsafe_allow_html=True)
         verdict = "likely to churn" if result["will_churn"] else "likely to stay"
@@ -277,9 +301,8 @@ def render_result(result: dict, source: str) -> None:
         st.caption(f"Scored by {source}.")
 
     if result.get("top_drivers"):
-        left, right = st.columns([1.1, 1])
-        left.plotly_chart(charts.shap_drivers(result["top_drivers"], service.explainer.output_units),
-                          width="stretch", theme=None)
+        left, right = st.columns([1.35, 1])
+        show_chart(left, charts.shap_drivers(result["top_drivers"], service.explainer.output_units))
         with right:
             st.markdown("#### Recommended retention actions")
             for rec in result["retention_plan"]["recommendations"]:
@@ -321,12 +344,11 @@ def page_planner() -> None:
         "Only customers who have not churned yet", value=True,
         help="Historical churners are already gone; a real campaign targets the active base.") else scored
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c4 = st.columns([2, 1])
     tiers = c1.multiselect("Target risk tiers", charts.TIER_ORDER, default=["High", "Critical"])
-    save_rate = c2.slider("Expected save rate", 0.05, 0.6, 0.25, 0.05,
-                          help="Share of targeted at-risk customers the campaign retains.")
-    cost = c3.number_input("Cost per targeted customer ($)", 0.0, 500.0, 40.0, 5.0)
     min_value = c4.number_input("Min. monthly charges ($)", 0.0, 120.0, 0.0, 5.0)
+    save_rate, cost = SAVE_RATE, COST
+    st.caption(f"Save rate {save_rate:.0%} and ${cost:,.0f} per contact, set in the sidebar.")
 
     target = active[active["risk_tier"].isin(tiers) & (active["MonthlyCharges"] >= min_value)]
     saved = target["annual_revenue_at_risk"].sum() * save_rate
@@ -388,8 +410,8 @@ def page_batch() -> None:
               delta_color="off")
     m3.metric("Annual revenue at risk", f"${out['annual_revenue_at_risk'].sum():,.0f}")
     left, right = st.columns(2)
-    left.plotly_chart(charts.tier_distribution(out), width="stretch", theme=None)
-    right.plotly_chart(charts.segment_revenue(segment_summary(out)), width="stretch", theme=None)
+    show_chart(left, charts.tier_distribution(out))
+    show_chart(right, charts.segment_revenue(segment_summary(out)))
 
     tiers = st.multiselect("Filter tiers", charts.TIER_ORDER, default=charts.TIER_ORDER)
     view = out[out["risk_tier"].isin(tiers)].sort_values("churn_probability", ascending=False)
@@ -423,15 +445,15 @@ def page_models() -> None:
         subset=["CV ROC-AUC", "Test ROC-AUC", "PR-AUC", "F1", "Recall", "Churners in top 20%"],
         props="font-weight:700"), hide_index=True, row_height=TABLE_ROW_HEIGHT, width="stretch")
 
-    st.plotly_chart(charts.metric_comparison(comp), width="stretch", theme=None)
+    show_chart(st, charts.metric_comparison(comp))
     left, right = st.columns(2)
-    left.plotly_chart(charts.roc_pr(art["curves"], MODEL_DISPLAY, "roc"), width="stretch", theme=None)
-    right.plotly_chart(charts.roc_pr(art["curves"], MODEL_DISPLAY, "pr"), width="stretch", theme=None)
+    show_chart(left, charts.roc_pr(art["curves"], MODEL_DISPLAY, "roc"))
+    show_chart(right, charts.roc_pr(art["curves"], MODEL_DISPLAY, "pr"))
 
     left, right = st.columns([1, 1.3])
-    cm = config.FIGURES_DIR / "confusion_matrix.png"
-    if cm.exists():
-        left.image(str(cm), caption="Production model on the test set")
+    best = comp.loc[comp["key"] == meta["model_key"]].iloc[0]
+    show_chart(left, charts.confusion_matrix(best, meta["model_name"]))
+    left.caption("Production model on the held-out test set; % = share of each actual class.")
     with right:
         st.markdown("#### How to read this")
         tm = meta["test_metrics"]
@@ -448,6 +470,118 @@ def page_models() -> None:
         with st.expander("Best hyper-parameters"):
             st.json(meta["best_params"])
 
+    section_calibration()
+    section_thresholds()
+
+
+@st.cache_data
+def load_oof() -> pd.DataFrame | None:
+    return pd.read_csv(config.OOF_PATH) if config.OOF_PATH.exists() else None
+
+
+def section_calibration() -> None:
+    st.subheader("Calibration by risk tier and segment")
+    st.caption(
+        "Do predicted probabilities match reality inside each group? Diamond = mean predicted "
+        "probability; dot = churn rate actually observed, with its 95% confidence interval. "
+        "Held-out test customers only."
+    )
+    report = calibration_report(scored)
+    left, right = st.columns(2)
+    show_chart(left, charts.calibration_dots(report[report["group_type"] == "risk_tier"], "By risk tier"))
+    show_chart(right, charts.calibration_dots(report[report["group_type"] == "segment"], "By segment"))
+
+    flagged = report[report["flag"] != "ok"]
+    worst = report.loc[report["gap"].abs().idxmax()]
+    flagged_text = ", ".join(f"{g} ({f})" for g, f in zip(flagged["group"], flagged["flag"]))
+    st.markdown(
+        f"**Largest gap:** {worst['group']} ({worst['gap']:+.1%}). "
+        + (f"**Flagged:** {flagged_text}." if len(flagged) else "**No groups flagged.**")
+    )
+    st.caption(
+        f"Flags: *small sample* = fewer than {config.CALIBRATION_MIN_SAMPLE} customers, so the actual "
+        f"rate is too uncertain to judge calibration; *large gap* = predicted and actual differ by more "
+        f"than {config.CALIBRATION_MAX_GAP:.0%} **and** the prediction lies outside the 95% interval."
+    )
+    st.dataframe(
+        report.assign(group_type=report["group_type"].map({"risk_tier": "Risk tier", "segment": "Segment"}))
+        .rename(columns={"group_type": "Grouping", "group": "Group", "n": "Customers",
+                               "predicted_rate": "Predicted", "actual_rate": "Actual",
+                               "ci_low": "95% CI low", "ci_high": "95% CI high", "gap": "Gap",
+                               "flag": "Flag"}),
+        hide_index=True, row_height=TABLE_ROW_HEIGHT, width="stretch",
+        column_config={c: st.column_config.NumberColumn(format="percent")
+                       for c in ["Predicted", "Actual", "95% CI low", "95% CI high", "Gap"]},
+    )
+
+
+def section_thresholds() -> None:
+    st.subheader("Decision threshold: F1 vs. profit")
+    oof = load_oof()
+    if oof is None:
+        st.info("Out-of-fold predictions not found. Re-run `python -m churn.train` to enable this section.")
+        return
+
+    # Profit threshold: chosen on the same out-of-fold training predictions as the F1
+    # threshold, with the campaign assumptions from the sidebar.
+    f1_t = float(service.threshold)
+    profit_t = best_profit_threshold(oof["actual_churn"], oof["oof_probability"],
+                                     customer_value(oof["MonthlyCharges"]), COST, SAVE_RATE)
+
+    test = scored[scored["split"] == "test"]
+    y, p = test["actual_churn"].to_numpy(), test["churn_probability"].to_numpy()
+    value = customer_value(test["MonthlyCharges"])
+
+    def outcome(t: float) -> dict:
+        r = net_profit(y, p, value, t, COST, SAVE_RATE)
+        flagged = p >= t
+        tp = int((flagged & (y == 1)).sum())
+        precision = tp / max(int(flagged.sum()), 1)
+        recall = tp / max(int(y.sum()), 1)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-12)
+        return {**r, "precision": precision, "recall": recall, "f1": f1}
+
+    a, b = outcome(f1_t), outcome(profit_t)
+    c1, c2 = st.columns(2)
+    cards = (
+        (c1, "F1-optimal threshold", f1_t, a,
+         "Balances precision and recall; treats every churner and every false alarm as equally "
+         "important. Chosen at training time and used for the API's `will_churn` flag."),
+        (c2, "Profit-optimal threshold", profit_t, b,
+         f"Maximises net campaign profit with a {SAVE_RATE:.0%} save rate and ${COST:,.0f} per "
+         "contact (sidebar), weighting each churner by the revenue a save would preserve."),
+    )
+    for col, name, t, r, why in cards:
+        with col.container(border=True):
+            st.markdown(f"**{name}: {t:.2f}**")
+            st.caption(why)
+            st.metric("Net profit (test set)", f"${r['net_profit']:,.0f}")
+            st.markdown(f"**{r['contacted']:,}** contacted · **{r['churners_reached']:,}** churners reached")
+            st.caption(f"Precision {r['precision']:.0%} · Recall {r['recall']:.0%} · F1 {r['f1']:.3f} · "
+                       f"Revenue saved ${r['revenue_saved']:,.0f} · Cost ${r['cost']:,.0f}")
+
+    diff = b["net_profit"] - a["net_profit"]
+    extra = b["contacted"] - a["contacted"]
+    if abs(profit_t - f1_t) < 0.005:
+        verdict = "Under these assumptions the two thresholds coincide."
+    elif profit_t < f1_t:
+        verdict = (f"The profit threshold is **lower**: a saved customer is worth more than a "
+                   f"${COST:,.0f} contact, so it pays to reach more customers and accept more false "
+                   f"alarms ({extra:+,} contacts, {diff:+,.0f} USD net on the test set).")
+    else:
+        verdict = (f"The profit threshold is **higher**: at ${COST:,.0f} per contact, borderline "
+                   f"customers cost more than they are expected to return, so it contacts fewer "
+                   f"({extra:+,} contacts, {diff:+,.0f} USD net on the test set).")
+    st.markdown(verdict)
+
+    curve = pd.DataFrame(compute_profit_curve(y, p, value, COST, SAVE_RATE))
+    show_chart(st, charts.profit_curve(curve, f1_t, profit_t))
+    st.caption(
+        "Both thresholds are chosen on out-of-fold training predictions and compared here on the "
+        "held-out test set (1,409 customers). Net profit = save rate x 12 months of revenue from "
+        "each churner contacted - cost x everyone contacted. Change the assumptions in the sidebar."
+    )
+
 
 def page_explain() -> None:
     st.header("Explainability")
@@ -455,7 +589,7 @@ def page_explain() -> None:
                "One-hot columns are summed back into their original feature.")
     imp = art["importance"]
     left, right = st.columns([1, 1])
-    left.plotly_chart(charts.global_importance(imp, meta["shap_output_units"]), width="stretch", theme=None)
+    show_chart(left, charts.global_importance(imp, meta["shap_output_units"]))
     bee = config.FIGURES_DIR / "shap_summary_beeswarm.png"
     if bee.exists():
         right.image(str(bee), caption="SHAP beeswarm: each dot is a customer; colour = feature value, "
@@ -464,7 +598,7 @@ def page_explain() -> None:
     st.subheader("Feature effect explorer")
     candidates = [f for f in imp["feature"] if f in scored.columns]
     feat = st.selectbox("Feature", candidates, format_func=lambda f: config.FEATURE_LABELS.get(f, f))
-    st.plotly_chart(charts.dependence(scored, feat, config.FEATURE_LABELS.get(feat, feat)), width="stretch", theme=None)
+    show_chart(st, charts.dependence(scored, feat, config.FEATURE_LABELS.get(feat, feat)))
 
 
 {
