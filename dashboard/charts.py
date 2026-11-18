@@ -29,7 +29,9 @@ GRID = "rgba(230,237,247,0.10)"
 AXIS_LINE = "rgba(230,237,247,0.25)"
 PANEL = "#16243d"
 
-TITLE_BAND = 44  # px reserved at the top for the chart title
+TITLE_MARGIN = 72    # px: fixed top margin that holds only the title
+LEGEND_MARGIN = 104  # px: bottom margin that holds tick labels, axis title and the legend
+LEGEND_GAP = 64      # px: legend top sits this far below the plot, clear of the x-axis title
 
 
 def wrap_label(text: str, width: int = 14) -> str:
@@ -48,26 +50,31 @@ def wrap_label(text: str, width: int = 14) -> str:
 def _base(fig: go.Figure, height: int = 360, title: str | None = None) -> go.Figure:
     """Shared layout for every dashboard figure.
 
-    The title owns a fixed band at the top. The horizontal legend (if any) sits below the
-    plot, anchored to the bottom of the figure, and Plotly expands the bottom margin to fit
-    however many rows it wraps to, so it can never collide with the title at any width.
-    Axes use automargin so tick labels and axis titles are never clipped.
+    * Title: fixed top margin (72px), pinned to the top of the figure, nothing else up there.
+    * Legend: horizontal, centred, top-anchored BELOW the plot area, with a bottom margin
+      sized to hold it. Plotly's autoexpand grows that margin if the legend wraps to more rows.
+    * Axes: automargin so tick labels and axis titles are never clipped.
     """
     has_legend = sum(1 for t in fig.data if t.showlegend is not False) > 1
-    top = TITLE_BAND if title else 12
+    top = TITLE_MARGIN if title else 24
+    bottom = LEGEND_MARGIN if has_legend else 12
+    # y is in plot-height units: at least -0.2, lower on short plots so the legend
+    # always starts LEGEND_GAP px below the axis, under the x-axis title.
+    plot_height = max(height - top - bottom, 1)
+    legend_y = -max(0.2, LEGEND_GAP / plot_height)
     fig.update_layout(
         height=height,
         title=dict(text=title, x=0, xanchor="left", xref="container", y=1, yanchor="top",
-                   yref="container", pad=dict(t=12, l=4), font=dict(size=15, color=TEXT))
+                   yref="container", pad=dict(t=18, l=4), font=dict(size=15, color=TEXT, weight=600))
         if title else None,
-        margin=dict(l=12, r=28, t=top, b=12, autoexpand=True),
+        margin=dict(l=12, r=28, t=top, b=bottom, autoexpand=True),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Inter, Segoe UI, sans-serif", size=12, color=TEXT),
         showlegend=has_legend,
-        legend=dict(orientation="h", x=0, xanchor="left", xref="container", y=0, yanchor="bottom",
-                    yref="container", title=None, font=dict(size=12, color=TEXT),
-                    bgcolor="rgba(0,0,0,0)", itemwidth=30, tracegroupgap=0),
+        legend=dict(orientation="h", yanchor="top", y=legend_y, xanchor="center", x=0.5,
+                    title=None, font=dict(size=12, color=TEXT), bgcolor="rgba(0,0,0,0)",
+                    itemwidth=30, tracegroupgap=0),
         hoverlabel=dict(font_size=12, bgcolor=PANEL, bordercolor=AXIS_LINE, font_color=TEXT),
         bargap=0.35,
     )
@@ -115,7 +122,7 @@ def segment_revenue(summary: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(autorange="reversed", showgrid=False)
     fig.update_xaxes(title="Expected annual revenue at risk (USD)", showgrid=True, gridcolor=GRID,
                      range=[0, s["annual_revenue_at_risk"].max() * 1.25])
-    return _base(fig, title="Annual revenue at risk by segment")
+    return _base(fig, title="Revenue at risk by segment")
 
 
 def churn_rate_by(df: pd.DataFrame, col: str, title: str) -> go.Figure:
@@ -164,7 +171,7 @@ def tenure_curve(df: pd.DataFrame) -> go.Figure:
     fig.update_layout(hovermode="x unified")
     fig.update_yaxes(tickformat=".0%", title="Churn")
     fig.update_xaxes(title="Tenure (months, start of 6-month bin)", tickangle=0)
-    return _base(fig, height=340, title="Churn by tenure: actual vs. predicted")
+    return _base(fig, height=390, title="Churn by tenure")
 
 
 def probability_histogram(scored: pd.DataFrame) -> go.Figure:
@@ -177,7 +184,7 @@ def probability_histogram(scored: pd.DataFrame) -> go.Figure:
     fig.update_layout(barmode="overlay")
     fig.update_xaxes(title="Predicted churn probability", tickformat=".0%")
     fig.update_yaxes(title="Customers")
-    return _base(fig, height=340, title="Predicted probability by outcome")
+    return _base(fig, height=390, title="Predicted probability by outcome")
 
 
 def gauge(probability: float, tier: str) -> go.Figure:
@@ -226,7 +233,7 @@ def shap_drivers(drivers: list[dict], units: str) -> go.Figure:
     fig.update_xaxes(title=f"SHAP contribution ({units})<br>red raises risk, blue lowers it",
                      range=[-span, span], zeroline=True, zerolinecolor=MUTED, showgrid=True, gridcolor=GRID)
     fig.update_yaxes(showgrid=False)
-    return _base(fig, height=60 + 38 * len(d), title="Why this prediction? Top drivers (SHAP)")
+    return _base(fig, height=140 + 38 * len(d), title="Top churn drivers (SHAP)")
 
 
 def global_importance(importance: pd.DataFrame, units: str, top_n: int = 15) -> go.Figure:
@@ -261,11 +268,11 @@ def roc_pr(curves: dict, display: dict, kind: str) -> go.Figure:
                                  line=dict(color=MUTED, dash="dot", width=1), hoverinfo="skip"))
         fig.update_xaxes(title="False positive rate")
         fig.update_yaxes(title="True positive rate")
-        title = "ROC curve (test set)"
+        title = "ROC (test set)"
     else:
         fig.update_xaxes(title="Recall")
         fig.update_yaxes(title="Precision")
-        title = "Precision-Recall curve (test set)"
+        title = "Precision-Recall (test set)"
     fig.update_xaxes(range=[0, 1], showgrid=True, gridcolor=GRID)
     fig.update_yaxes(range=[0, 1.02])
     return _base(fig, height=450, title=title)
@@ -283,7 +290,7 @@ def metric_comparison(comparison: pd.DataFrame) -> go.Figure:
                              hovertemplate=f"<b>{row['model']}</b><br>%{{x}}: %{{y:.3f}}<extra></extra>"))
     fig.update_layout(barmode="group", bargroupgap=0.08)
     fig.update_yaxes(range=[0, 1], title="Score")
-    return _base(fig, height=380, title="Test-set metrics at each model's tuned threshold")
+    return _base(fig, height=380, title="Test-set metrics by model")
 
 
 def dependence(scored: pd.DataFrame, feature: str, label: str) -> go.Figure:

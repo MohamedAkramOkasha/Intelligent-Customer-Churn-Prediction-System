@@ -162,9 +162,9 @@ def page_overview() -> None:
               delta_color="off")
 
     left, right = st.columns(2)
-    left.plotly_chart(charts.tier_distribution(scored), width="stretch")
+    left.plotly_chart(charts.tier_distribution(scored), width="stretch", theme=None)
     summary = segment_summary(scored)
-    right.plotly_chart(charts.segment_revenue(summary), width="stretch")
+    right.plotly_chart(charts.segment_revenue(summary), width="stretch", theme=None)
 
     st.subheader("Segments")
     st.dataframe(
@@ -188,14 +188,14 @@ def page_overview() -> None:
     st.subheader("What drives churn")
     st.caption("Historical churn rate by customer attribute; dotted line = overall rate.")
     a, b, c = st.columns(3)
-    a.plotly_chart(charts.churn_rate_by(scored, "Contract", "By contract"), width="stretch")
+    a.plotly_chart(charts.churn_rate_by(scored, "Contract", "By contract"), width="stretch", theme=None)
     b.plotly_chart(charts.churn_rate_by(scored, "InternetService", "By internet service"),
-                   width="stretch")
+                   width="stretch", theme=None)
     c.plotly_chart(charts.churn_rate_by(scored, "PaymentMethod", "By payment method"),
-                   width="stretch")
+                   width="stretch", theme=None)
     left, right = st.columns(2)
-    left.plotly_chart(charts.tenure_curve(scored), width="stretch")
-    right.plotly_chart(charts.probability_histogram(scored[scored["split"] == "test"]), width="stretch")
+    left.plotly_chart(charts.tenure_curve(scored), width="stretch", theme=None)
+    right.plotly_chart(charts.probability_histogram(scored[scored["split"] == "test"]), width="stretch", theme=None)
     right.caption("Histogram uses held-out test customers only.")
 
 
@@ -253,7 +253,7 @@ def customer_form(defaults: dict, key: str) -> dict:
 def render_result(result: dict, source: str) -> None:
     tier = result["risk_tier"]
     g, info = st.columns([1, 1.4])
-    g.plotly_chart(charts.gauge(result["churn_probability"], tier), width="stretch")
+    g.plotly_chart(charts.gauge(result["churn_probability"], tier), width="stretch", theme=None)
     with info:
         st.markdown(f"### {TIER_ICON[tier]} {badge(tier)}", unsafe_allow_html=True)
         verdict = "likely to churn" if result["will_churn"] else "likely to stay"
@@ -279,7 +279,7 @@ def render_result(result: dict, source: str) -> None:
     if result.get("top_drivers"):
         left, right = st.columns([1.1, 1])
         left.plotly_chart(charts.shap_drivers(result["top_drivers"], service.explainer.output_units),
-                          width="stretch")
+                          width="stretch", theme=None)
         with right:
             st.markdown("#### Recommended retention actions")
             for rec in result["retention_plan"]["recommendations"]:
@@ -388,8 +388,8 @@ def page_batch() -> None:
               delta_color="off")
     m3.metric("Annual revenue at risk", f"${out['annual_revenue_at_risk'].sum():,.0f}")
     left, right = st.columns(2)
-    left.plotly_chart(charts.tier_distribution(out), width="stretch")
-    right.plotly_chart(charts.segment_revenue(segment_summary(out)), width="stretch")
+    left.plotly_chart(charts.tier_distribution(out), width="stretch", theme=None)
+    right.plotly_chart(charts.segment_revenue(segment_summary(out)), width="stretch", theme=None)
 
     tiers = st.multiselect("Filter tiers", charts.TIER_ORDER, default=charts.TIER_ORDER)
     view = out[out["risk_tier"].isin(tiers)].sort_values("churn_probability", ascending=False)
@@ -423,10 +423,10 @@ def page_models() -> None:
         subset=["CV ROC-AUC", "Test ROC-AUC", "PR-AUC", "F1", "Recall", "Churners in top 20%"],
         props="font-weight:700"), hide_index=True, row_height=TABLE_ROW_HEIGHT, width="stretch")
 
-    st.plotly_chart(charts.metric_comparison(comp), width="stretch")
+    st.plotly_chart(charts.metric_comparison(comp), width="stretch", theme=None)
     left, right = st.columns(2)
-    left.plotly_chart(charts.roc_pr(art["curves"], MODEL_DISPLAY, "roc"), width="stretch")
-    right.plotly_chart(charts.roc_pr(art["curves"], MODEL_DISPLAY, "pr"), width="stretch")
+    left.plotly_chart(charts.roc_pr(art["curves"], MODEL_DISPLAY, "roc"), width="stretch", theme=None)
+    right.plotly_chart(charts.roc_pr(art["curves"], MODEL_DISPLAY, "pr"), width="stretch", theme=None)
 
     left, right = st.columns([1, 1.3])
     cm = config.FIGURES_DIR / "confusion_matrix.png"
@@ -455,7 +455,7 @@ def page_explain() -> None:
                "One-hot columns are summed back into their original feature.")
     imp = art["importance"]
     left, right = st.columns([1, 1])
-    left.plotly_chart(charts.global_importance(imp, meta["shap_output_units"]), width="stretch")
+    left.plotly_chart(charts.global_importance(imp, meta["shap_output_units"]), width="stretch", theme=None)
     bee = config.FIGURES_DIR / "shap_summary_beeswarm.png"
     if bee.exists():
         right.image(str(bee), caption="SHAP beeswarm: each dot is a customer; colour = feature value, "
@@ -464,7 +464,7 @@ def page_explain() -> None:
     st.subheader("Feature effect explorer")
     candidates = [f for f in imp["feature"] if f in scored.columns]
     feat = st.selectbox("Feature", candidates, format_func=lambda f: config.FEATURE_LABELS.get(f, f))
-    st.plotly_chart(charts.dependence(scored, feat, config.FEATURE_LABELS.get(feat, feat)), width="stretch")
+    st.plotly_chart(charts.dependence(scored, feat, config.FEATURE_LABELS.get(feat, feat)), width="stretch", theme=None)
 
 
 {
