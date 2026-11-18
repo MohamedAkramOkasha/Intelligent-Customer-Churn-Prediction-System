@@ -4,6 +4,7 @@
 
 **Predict which customers will leave, explain why, and tell the business what to do about it.**
 
+[![CI](https://github.com/MohamedAkramOkasha/Intelligent-Customer-Churn-Prediction-System/actions/workflows/ci.yml/badge.svg)](https://github.com/MohamedAkramOkasha/Intelligent-Customer-Churn-Prediction-System/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.9-F7931E?logo=scikitlearn&logoColor=white)](https://scikit-learn.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-3.4-189FDD)](https://xgboost.ai/)
@@ -155,6 +156,11 @@ rate and cost per contact) and an exportable priority call list.
 ### Option A: Docker (recommended)
 
 ```bash
+git clone https://github.com/MohamedAkramOkasha/Intelligent-Customer-Churn-Prediction-System.git
+cd Intelligent-Customer-Churn-Prediction-System
+```
+
+```bash
 docker compose up --build
 ```
 
@@ -169,6 +175,9 @@ image trains the model during the build if `models/churn_model.joblib` is missin
 ### Option B: Local
 
 ```bash
+git clone https://github.com/MohamedAkramOkasha/Intelligent-Customer-Churn-Prediction-System.git
+cd Intelligent-Customer-Churn-Prediction-System
+
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 
